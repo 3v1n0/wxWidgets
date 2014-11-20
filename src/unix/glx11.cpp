@@ -20,6 +20,10 @@
 
 #if wxUSE_GLCANVAS
 
+#ifdef __WXGTK3__
+#include <gtk/gtk.h>
+#if !GTK_CHECK_VERSION(3,15,0)
+
 #ifndef WX_PRECOMP
     #include "wx/log.h"
 #endif //WX_PRECOMP
@@ -630,6 +634,9 @@ bool wxGLCanvasX11::IsShownOnScreen() const
 {
     return GetXWindow() && wxGLCanvasBase::IsShownOnScreen();
 }
+
+#endif // __WXGTK3__
+#endif !GTK_CHECK_VERSION(3,15,0)
 
 #endif // wxUSE_GLCANVAS
 

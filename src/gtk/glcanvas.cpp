@@ -16,10 +16,12 @@
 #include "wx/glcanvas.h"
 
 #include <gtk/gtk.h>
-#include <gdk/gdkx.h>
-#include "wx/gtk/private/gtk2-compat.h"
 
 #if WXWIN_COMPATIBILITY_2_8
+
+#if !GTK_CHECK_VERSION(3,15,0)
+#include <gdk/gdkx.h>
+#include "wx/gtk/private/gtk2-compat.h"
 
 //-----------------------------------------------------------------------------
 // "realize" from m_wxwindow: used to create m_glContext implicitly
@@ -317,5 +319,133 @@ void wxGLCanvas::GTKInitImplicitContext()
 }
 
 #endif // WXWIN_COMPATIBILITY_2_8
+
+#else // if GTK_CHECK_VERSION(3,16,0)
+
+
+//-----------------------------------------------------------------------------
+// "render" from m_wxwindow
+//-----------------------------------------------------------------------------
+
+extern "C" {
+static void
+gtk_glcanvas_render( GtkGLArea * WXUNUSED(area), GdkGLContext * WXUNUSED(context), wxGLCanvas *win )
+{
+    g_print("%s %d\n",G_STRFUNC);
+
+    wxPaintEvent event( win->GetId() );
+    event.SetEventObject( win );
+    win->HandleWindowEvent( event );
+
+    win->GetUpdateRegion().Clear();
+}
+}
+
+//-----------------------------------------------------------------------------
+// "size_allocate" of m_wxwindow
+//-----------------------------------------------------------------------------
+
+extern "C" {
+static void
+gtk_glcanvas_size_callback(GtkWidget *WXUNUSED(widget),
+                           GtkAllocation * WXUNUSED(alloc),
+                           wxGLCanvas *win)
+{
+    g_print("%s %d\n",G_STRFUNC);
+    wxSizeEvent event( wxSize(win->m_width,win->m_height), win->GetId() );
+    event.SetEventObject( win );
+    win->HandleWindowEvent( event );
+}
+}
+
+//---------------------------------------------------------------------------
+// wxGlContext
+//---------------------------------------------------------------------------
+
+IMPLEMENT_CLASS(wxGLContext, wxWindow)
+
+wxGLContext::wxGLContext(wxGLCanvas *win, const wxGLContext* other)
+{
+    m_glContext = gtk_gl_area_get_context(win->GetGLArea());
+}
+
+bool wxGLContext::SetCurrent(const wxGLCanvas& win) const
+{
+    if (gtk_widget_get_realized(GTK_WIDGET(win.GetGLArea())))
+        gtk_gl_area_make_current(win.GetGLArea());
+    return true;
+}
+
+//---------------------------------------------------------------------------
+// wxGlCanvas
+//---------------------------------------------------------------------------
+
+IMPLEMENT_CLASS(wxGLCanvas, wxWindow)
+
+wxGLCanvas::wxGLCanvas(wxWindow *parent,
+                       wxWindowID id,
+                       const int *attribList,
+                       const wxPoint& pos,
+                       const wxSize& size,
+                       long style,
+                       const wxString& name,
+                       const wxPalette& palette)
+{
+    Create(parent, id, pos, size, style, name, attribList, palette);
+}
+
+bool wxGLCanvas::Create(wxWindow *parent,
+                        wxWindowID id,
+                        const wxPoint& pos,
+                        const wxSize& size,
+                        long style,
+                        const wxString& name,
+                        const int *attribList,
+                        const wxPalette& palette)
+{
+#if wxUSE_PALETTE
+    wxASSERT_MSG( !palette.IsOk(), wxT("palettes not supported") );
+#endif // wxUSE_PALETTE
+    wxUnusedVar(palette); // Unused when wxDEBUG_LEVEL==0
+
+    // QGLFormat format;
+    // if (!wxGLCanvas::ConvertWXAttrsToQtGL(attribList, format))
+    //     return false;
+
+    m_noExpose = true;
+    m_nativeSizeEvent = true;
+    m_backgroundStyle = wxBG_STYLE_PAINT;
+
+    wxWindow::Create( parent, id, pos, size, style, name );
+
+    gtk_widget_set_double_buffered(m_wxwindow, false);
+
+    m_glArea = gtk_gl_area_new();
+    gtk_widget_set_hexpand(m_glArea, TRUE);
+    gtk_widget_set_vexpand(m_glArea, TRUE);
+    gtk_container_add(GTK_CONTAINER(m_widget), m_glArea);
+    gtk_widget_show(m_glArea);
+
+    g_signal_connect(m_widget, "size_allocate", G_CALLBACK(gtk_glcanvas_size_callback), this);
+    g_signal_connect(m_glArea, "render", G_CALLBACK (gtk_glcanvas_render), this);
+
+    return TRUE;
+}
+
+bool wxGLCanvas::SwapBuffers()
+{
+    gtk_gl_area_queue_render(GTK_GL_AREA(m_glArea));
+    return true;
+}
+
+/* static */
+bool
+wxGLCanvasBase::IsDisplaySupported(const int *attribList)
+{
+    wxUnusedVar(attribList);
+    return true;
+}
+
+#endif // !GTK_CHECK_VERSION(3,16,0)
 
 #endif // wxUSE_GLCANVAS
